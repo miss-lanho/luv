@@ -4,6 +4,9 @@ FROM php:8.2-fpm
 # Cài đặt Nginx
 RUN apt-get update && apt-get install -y nginx && rm -rf /var/lib/apt/lists/*
 
+# Tạo thư mục chạy PHP-FPM
+RUN mkdir -p /run/php && chmod -R 755 /run/php
+
 # Copy mã nguồn vào container
 WORKDIR /var/www/html
 COPY . /var/www/html
