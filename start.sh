@@ -1,8 +1,10 @@
-#!/usr/bin/env bash
-# Cài đặt và khởi động PHP + Nginx trên Render
+#!/bin/bash
+# Render cung cấp biến môi trường $PORT → dùng cho Nginx
+PORT=${PORT:-10000}
 
-# Cấu hình PHP-FPM
-php-fpm -D
+# Thay cổng mặc định 80 thành $PORT
+sed -i "s/80/$PORT/g" /etc/nginx/conf.d/default.conf
 
-# Chạy Nginx foreground để container không dừng
-nginx -g 'daemon off;'
+# Khởi động PHP-FPM và Nginx
+service php-fpm start
+nginx -g "daemon off;"
