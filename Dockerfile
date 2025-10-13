@@ -1,17 +1,22 @@
+# Sử dụng image PHP có sẵn Nginx và PHP-FPM
 FROM php:8.2-fpm
 
-# Cài Nginx
+# Cài đặt Nginx
 RUN apt-get update && apt-get install -y nginx && rm -rf /var/lib/apt/lists/*
 
-# Copy mã nguồn
-COPY . /opt/render/project/src
-WORKDIR /opt/render/project/src
+# Copy mã nguồn vào container
+WORKDIR /var/www/html
+COPY . /var/www/html
 
-# Copy file Nginx config
-COPY nginx.conf /etc/nginx/sites-available/default
+# Copy file cấu hình Nginx
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Cấp quyền thực thi cho start.sh
-RUN chmod +x /opt/render/project/src/start.sh
+# Copy start script
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
 
+# Mở port (Render sẽ tự đặt $PORT, nhưng khai báo để dev local dễ test)
 EXPOSE 10000
-CMD ["./start.sh"]
+
+# Chạy script start
+CMD ["/start.sh"]
