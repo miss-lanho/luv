@@ -5,6 +5,6 @@ PORT=${PORT:-10000}
 # Thay cổng mặc định 80 thành $PORT
 sed -i "s/80/$PORT/g" /etc/nginx/conf.d/default.conf
 
-# Khởi động PHP-FPM và Nginx
-service php-fpm start
+# Khởi động PHP-FPM ở background và Nginx foreground
+php-fpm -D
 nginx -g "daemon off;"
