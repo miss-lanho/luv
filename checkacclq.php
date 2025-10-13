@@ -1,4 +1,9 @@
 <?php
+if (isset($_GET['ping'])) {
+    header('Content-Type: application/json');
+    echo json_encode(['status' => 'ok', 'time' => date('Y-m-d H:i:s')]);
+    exit;
+}
 header('Content-Type: application/json');
 if (!isset($_GET['username']) || !isset($_GET['password'])) {
     $data = array(
