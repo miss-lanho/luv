@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: php-api
-    env: docker
-    plan: free
-    autoDeploy: true
-    buildCommand: ""
-    startCommand: ./start.sh
