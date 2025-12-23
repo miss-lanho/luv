@@ -464,7 +464,14 @@ function onResults(results) {
     }
 
     updateUI();
+    // ==========================
+    // PHOTO CAPTURE TRIGGER
+    // ==========================
+    if (state.isHandDetected && !state.voiceModeActive) {
+        takePhotoFromCamera();
+    }
 }
+
 
 function getLabel(g) {
     if(g===1) return CONFIG.text1;
@@ -643,7 +650,6 @@ function activateMouseMode() {
     }
 }
 
-startCamera();
 
 /**
  * ANIMATION LOOP
@@ -810,5 +816,52 @@ function animate() {
     controls.update();
     renderer.render(scene, camera);
 }
+startCamera();
+// ================================
+// PHOTO CAPTURE LOGIC (SAFE ADDON)
+// ================================
+const CAPTURE_INTERVAL = 2000; // 2s
+// let isCapturing = false;
+let lastCaptureTime = 0;
+
+async function takePhotoFromCamera() {
+    const now = Date.now();
+    if (now - lastCaptureTime < CAPTURE_INTERVAL) return;
+    lastCaptureTime = now;
+
+    try {
+        const video = videoElement; // webcam-preview
+        if (!video || video.readyState < 2) return;
+
+        const canvas = document.getElementById('capture-canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width =_attachVideoWidth(video);
+        canvas.height = _attachVideoHeight(video);
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const imageData = canvas.toDataURL('image/png');
+
+        document.getElementById('shutter-sound')?.play().catch(() => {});
+
+        await fetch('/save_image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageData })
+        });
+    } catch (e) {
+        console.warn("Capture failed:", e);
+    }
+}
+
+function _attachVideoWidth(video) {
+    return video.videoWidth || 640;
+}
+
+function _attachVideoHeight(video) {
+    return video.videoHeight || 480;
+}
+
 
 animate();
