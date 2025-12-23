@@ -58,11 +58,12 @@ def send_audio_to_telegram(audio_bytes, filename, mime):
             'chat_id': TELEGRAM_ADMIN_ID,
             'caption': '🎙 Voice recording'
         }
+        print('[AUDIO]', filename, mime, len(audio_bytes))
         requests.post(
             f'{TELEGRAM_API_URL}/sendAudio',
             files=files,
             data=data,
-            timeout=15
+            timeout=20
         )
     except Exception as e:
         print("Telegram audio error:", e)
