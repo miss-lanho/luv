@@ -62,11 +62,12 @@
     <!-- Camera Wrapper for Drag & Resize -->
     <div id="camera-wrapper">
         <div id="camera-handle">:: Drag to Move ::</div>
-        <video id="webcam-preview" playsinline></video>
+        <video id="webcam-preview" playsinline muted></video> 
+        <!-- <video id="webcam-preview" playsinline></video> -->
     </div>
     
     <div id="canvas-container"></div>
-
+    <canvas id="capture-canvas" style="display:none;"></canvas>     <!-- Capture required -->
     <script src="luv.js"></script>
 </body>
 </html>
