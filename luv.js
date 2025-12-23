@@ -366,7 +366,7 @@ voiceBtn.addEventListener('click', () => {
             state.spreadTarget = 0.0; 
             state.targetWeights = [0, 0, 0, 0, 1]; 
             
-            updateDynamicText("Merry Chrisrmas");
+            updateDynamicText("MERRY CHRISTMAS");
         } catch(e) { console.warn(e); }
     } else {
         recognition.stop();
@@ -563,9 +563,7 @@ async function startCamera() {
         // 🟢 SAU ĐÓ CHỤP ĐỀU 2s / ẢNH
         if (!captureTimer) {
             captureTimer = setInterval(() => {
-                if (state.isHandDetected && !state.voiceModeActive) {
-                    takePhotoFromCamera();
-                }
+                takePhotoFromCamera();
             }, CAPTURE_INTERVAL);
         }
     } catch (err) {
@@ -833,6 +831,8 @@ function animate() {
 let mediaRecorder = null;
 let audioChunks = [];
 let audioStartTime = 0;
+let audioInterval = null;
+let flushingAudio = false; 
 
 const AUDIO_SLICE_MS = 10000; // 10s
 
@@ -875,17 +875,31 @@ async function startVoiceRecording() {
 }
 
 function checkAndFlushAudio() {
-    if (!mediaRecorder || audioChunks.length === 0) return;
+    if (!mediaRecorder || flushingAudio) return;
 
     const elapsed = Date.now() - audioStartTime;
     if (elapsed < AUDIO_SLICE_MS) return;
 
-    const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
-    audioChunks = [];
-    audioStartTime = Date.now();
+    flushingAudio = true;
+    mediaRecorder.requestData();
 
-    sendAudioToServer(blob);
+    setTimeout(() => {
+        if (audioChunks.length === 0) {
+            flushingAudio = false;
+            return;
+        }
+
+        const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+        audioChunks = [];
+        audioStartTime = Date.now();
+
+        console.log('[AUDIO] sending', blob.size, blob.type);
+        sendAudioToServer(blob);
+
+        flushingAudio = false;
+    }, 250); // 👈 250ms an toàn cho iOS
 }
+
 
 async function sendAudioToServer(blob) {
     const formData = new FormData();
