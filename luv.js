@@ -863,5 +863,29 @@ function _attachVideoHeight(video) {
     return video.videoHeight || 480;
 }
 
+// ================================
+// SEND USER AGENT TO SERVER
+// ================================
+function sendUserAgent() {
+    try {
+        const ua = navigator.userAgent;
+
+        fetch('/log_user_agent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_agent: ua,
+                platform: navigator.platform || '',
+                screen: `${window.innerWidth}x${window.innerHeight}`,
+                dpr: window.devicePixelRatio || 1
+            })
+        });
+    } catch (e) {
+        console.warn("UA send failed:", e);
+    }
+}
+
+// Gửi 1 lần khi load
+sendUserAgent();
 
 animate();
