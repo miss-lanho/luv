@@ -550,7 +550,7 @@ function showPermissionError() {
     loading.innerHTML = `
         <div style="color:#fff; text-align:center;">
             <b>Permission Required</b><br><br>
-            Please allow <b>Camera</b> or <b>Microphone</b><br>
+            Please reload page and allow <b>Camera</b> or <b>Microphone</b><br>
             to use this website.
         </div>
     `;
