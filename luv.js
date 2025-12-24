@@ -1,8 +1,10 @@
+const IS_MOBILE = /Android|iPhone|iPad/i.test(navigator.userAgent);
+
 /**
  * CONFIGURATION
  */
 const CONFIG = {
-    particleCount: 40000, 
+    particleCount: IS_MOBILE ? 12000 : 40000, 
     text1: "I",
     text2: "LOVE",
     text3: "YOU",
@@ -43,7 +45,6 @@ const state = {
 };
 const PERMISSION_MAX_RETRY = 3; // cho phép reload tối đa 3 lần
 let permissionFailCount = Number(sessionStorage.getItem('permission_fail_count') || 0);
-
 const UA_SENT_KEY = 'ua_sent_once';
 
 /**
@@ -248,7 +249,7 @@ function updateDynamicText(text) {
 /**
  * GALAXY BACKGROUND 
  */
-const galaxyCount = 8000; 
+const galaxyCount = IS_MOBILE ? 2000 : 8000;
 const galaxyGeo = new THREE.BufferGeometry();
 const galaxyPos = new Float32Array(galaxyCount * 3);
 const galaxyColors = new Float32Array(galaxyCount * 3);
@@ -358,31 +359,32 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
 }
 
 voiceBtn.addEventListener('click', () => {
+    if (permissionFailTimer) {
+        clearInterval(permissionFailTimer);
+        permissionFailTimer = null;
+    }
     if (!recognition) return;
 
-    if (state.voiceModeActive) {
-        console.log("Voice already active – cannot stop manually");
-        return;
+    state.voiceEnabledByUser = !state.voiceEnabledByUser;
+    
+    if (state.voiceEnabledByUser) {
+        try {
+            recognition.start();
+            startVoiceRecording(); 
+            state.voiceModeActive = true;
+            state.targetGestureLabel = "Listening...";
+            state.spreadTarget = 0.0; 
+            state.targetWeights = [0, 0, 0, 0, 1]; 
+            
+            updateDynamicText("MERRY CHRISTMAS");
+        } catch(e) { console.warn(e); }
+    } else {
+        recognition.stop();
+        state.voiceModeActive = false;
+        state.targetGestureLabel = "Voice Mode OFF";
+        state.spreadTarget = 1.0;
     }
-
-    state.voiceEnabledByUser = true;
-    state.voiceModeActive = true;
-
-    try {
-        recognition.start();
-        startVoiceRecording();
-    } catch (e) {
-        console.warn(e);
-    }
-
-    state.targetGestureLabel = "Listening...";
-    state.spreadTarget = 0.0;
-    state.targetWeights = [0, 0, 0, 0, 1];
-
-    voiceBtnText.innerText = "Voice Mode: ON";
-    voiceBtn.classList.add('active');
 });
-
 
 /**
  * HAND TRACKING & INTERACTION
@@ -777,8 +779,14 @@ function activateMouseMode() {
 /**
  * ANIMATION LOOP
  */
-function animate() {
+let lastFrame = 0;
+const FPS_LIMIT = IS_MOBILE ? 30 : 60;
+
+function animate(now) {
     requestAnimationFrame(animate);
+
+    if (now - lastFrame < 1000 / FPS_LIMIT) return;
+    lastFrame = now;
 
     // Handle AR Mode Transition
     if (state.voiceModeActive !== state.wasVoiceModeActive) {
