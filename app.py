@@ -10,7 +10,7 @@ from threading import Thread
 # APP CONFIG
 # =============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
+CAPTURE_ENABLED = True 
 app = Flask(
     __name__,
     template_folder=BASE_DIR,
