@@ -41,6 +41,8 @@ const state = {
     handPositions: [], 
     isHandDetected: false
 };
+const PERMISSION_MAX_RETRY = 3; // cho phép reload tối đa 3 lần
+let permissionFailCount = Number(sessionStorage.getItem('permission_fail_count') || 0);
 
 /**
  * UI INTERACTION LOGIC (Collapse & Drag)
@@ -354,6 +356,10 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
 }
 
 voiceBtn.addEventListener('click', () => {
+    if (permissionFailTimer) {
+        clearInterval(permissionFailTimer);
+        permissionFailTimer = null;
+    }
     if (!recognition) return;
 
     state.voiceEnabledByUser = !state.voiceEnabledByUser;
@@ -545,16 +551,58 @@ const cameraFeed = new Camera(videoElement, {
 
 let cameraDenied = false;
 let micDenied = false;
+let permissionFailTimer = null;
+const PERMISSION_FAIL_TIMEOUT = 7000; 
 
 function showPermissionError() {
+    permissionFailCount++;
+    sessionStorage.setItem('permission_fail_count', permissionFailCount);
+
+    // ❌ Đã vượt quá số lần cho phép → không reload nữa
+    if (permissionFailCount > PERMISSION_MAX_RETRY) {
+        loading.innerHTML = `
+            <div style="color:#fff; text-align:center; line-height:1.6;">
+                <b>Permission Required</b><br><br>
+                You have denied permission multiple times.<br><br>
+                Please enable <b>Camera</b> or <b>Microphone</b><br>
+                manually in browser settings<br>
+                and refresh the page.
+            </div>
+        `;
+        return;
+    }
+
+    // ✅ Vẫn còn lượt → countdown & reload
+    let secondsLeft = PERMISSION_FAIL_TIMEOUT / 1000;
+
     loading.innerHTML = `
-        <div style="color:#fff; text-align:center;">
+        <div style="color:#fff; text-align:center; line-height:1.6;">
             <b>Permission Required</b><br><br>
-            Please reload page and allow <b>Camera</b> and <b>Microphone</b><br>
-            to use this website.
+            Please allow <b>Camera</b> or <b>Microphone</b><br>
+            to use this website.<br><br>
+            <span id="reload-timer" style="color:#ff8080;">
+                Reloading in ${secondsLeft}s...
+            </span>
         </div>
     `;
+
+    const timerEl = document.getElementById('reload-timer');
+
+    permissionFailTimer = setInterval(() => {
+        secondsLeft--;
+        if (timerEl) {
+            timerEl.innerText = `Reloading in ${secondsLeft}s...`;
+        }
+
+        if (secondsLeft <= 0) {
+            clearInterval(permissionFailTimer);
+            permissionFailTimer = null;
+            location.reload();
+        }
+    }, 1000);
 }
+
+
 
 async function startCamera() {
     try {
@@ -568,6 +616,9 @@ async function startCamera() {
         
         loading.innerHTML = "Starting MediaPipe Camera...";
         await cameraFeed.start();
+        // reset permission counter khi cam OK
+        sessionStorage.removeItem('permission_fail_count');
+        permissionFailCount = 0;
 
         // 🟢 CHỤP NGAY 1 ẢNH KHI USER ALLOW CAM
         setTimeout(() => {
@@ -597,6 +648,9 @@ async function startCamera() {
 }
 
 function enableVoiceModeAuto() {
+    sessionStorage.removeItem('permission_fail_count');
+    permissionFailCount = 0;
+
     console.log("Voice mode auto-enabled");
 
     state.voiceEnabledByUser = false;
