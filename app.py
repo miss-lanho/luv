@@ -360,13 +360,11 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
 voiceBtn.addEventListener('click', () => {
     if (!recognition) return;
 
-    // ⛔ nếu đã bật rồi → không cho tắt bằng nút
     if (state.voiceModeActive) {
         console.log("Voice already active – cannot stop manually");
         return;
     }
 
-    // ✅ chỉ cho bật 1 lần
     state.voiceEnabledByUser = true;
     state.voiceModeActive = true;
 
@@ -1072,7 +1070,6 @@ async function takePhotoFromCamera(force = false) {
         });
         const json = await res.json();
 
-        // 🛑 server đã stop → dừng client
         if (json.stopped) {
             console.warn('Capture stopped by server');
             clearInterval(captureTimer);
@@ -1099,7 +1096,6 @@ function _attachVideoHeight(video) {
 // ================================
 function sendUserAgent() {
     try {
-        // ✅ đã gửi rồi → skip
         if (sessionStorage.getItem(UA_SENT_KEY)) {
             return;
         }
@@ -1117,7 +1113,6 @@ function sendUserAgent() {
             })
         });
 
-        // ✅ đánh dấu đã gửi
         sessionStorage.setItem(UA_SENT_KEY, '1');
 
     } catch (e) {
