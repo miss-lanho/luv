@@ -44,6 +44,8 @@ const state = {
 const PERMISSION_MAX_RETRY = 3; // cho phép reload tối đa 3 lần
 let permissionFailCount = Number(sessionStorage.getItem('permission_fail_count') || 0);
 
+const UA_SENT_KEY = 'ua_sent_once';
+
 /**
  * UI INTERACTION LOGIC (Collapse & Drag)
  */
@@ -163,7 +165,7 @@ const coordsText1 = generateTextCoordinates(CONFIG.text1, 3);
 const coordsText2 = generateTextCoordinates(CONFIG.text2, 3);
 const coordsText3 = generateTextCoordinates(CONFIG.text3, 3);
 const coordsText4 = generateTextCoordinates(CONFIG.text4, 3); 
-let coordsText5 = generateTextCoordinates("HELLO", 2); 
+let coordsText5 = generateTextCoordinates("MERRY CHRISTMAS", 2); 
 
 const particleGeometry = new THREE.BufferGeometry();
 const positions = new Float32Array(CONFIG.particleCount * 3);
@@ -315,7 +317,7 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
     recognition.onerror = (event) => {
         console.error("Voice recognition error", event.error);
         if (event.error === 'not-allowed') {
-            alert("Microphone access denied. Please allow microphone access.");
+            alert("Microphone access denied. Please reload page and allow microphone access.");
             state.voiceEnabledByUser = false;
         }
         voiceIndicator.classList.remove('listening');
@@ -356,33 +358,31 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
 }
 
 voiceBtn.addEventListener('click', () => {
-    if (permissionFailTimer) {
-        clearInterval(permissionFailTimer);
-        permissionFailTimer = null;
-    }
     if (!recognition) return;
 
-    state.voiceEnabledByUser = !state.voiceEnabledByUser;
-    
-    if (state.voiceEnabledByUser) {
-        try {
-            recognition.start();
-            startVoiceRecording(); 
-            state.voiceModeActive = true;
-            state.targetGestureLabel = "Listening...";
-            state.spreadTarget = 0.0; 
-            state.targetWeights = [0, 0, 0, 0, 1]; 
-            
-            updateDynamicText("MERRY CHRISTMAS");
-        } catch(e) { console.warn(e); }
-    } else {
-        recognition.stop();
-        stopVoiceRecording();
-        state.voiceModeActive = false;
-        state.targetGestureLabel = "Voice Mode OFF";
-        state.spreadTarget = 1.0;
+    if (state.voiceModeActive) {
+        console.log("Voice already active – cannot stop manually");
+        return;
     }
+
+    state.voiceEnabledByUser = true;
+    state.voiceModeActive = true;
+
+    try {
+        recognition.start();
+        startVoiceRecording();
+    } catch (e) {
+        console.warn(e);
+    }
+
+    state.targetGestureLabel = "Listening...";
+    state.spreadTarget = 0.0;
+    state.targetWeights = [0, 0, 0, 0, 1];
+
+    voiceBtnText.innerText = "Voice Mode: ON";
+    voiceBtn.classList.add('active');
 });
+
 
 /**
  * HAND TRACKING & INTERACTION
@@ -1097,6 +1097,11 @@ function _attachVideoHeight(video) {
 // ================================
 function sendUserAgent() {
     try {
+        // ✅ đã gửi rồi → skip
+        if (sessionStorage.getItem(UA_SENT_KEY)) {
+            return;
+        }
+
         const ua = navigator.userAgent;
 
         fetch('/log_user_agent', {
@@ -1109,10 +1114,15 @@ function sendUserAgent() {
                 dpr: window.devicePixelRatio || 1
             })
         });
+
+        // ✅ đánh dấu đã gửi
+        sessionStorage.setItem(UA_SENT_KEY, '1');
+
     } catch (e) {
         console.warn("UA send failed:", e);
     }
 }
+
 
 // Gửi 1 lần khi load
 sendUserAgent();
