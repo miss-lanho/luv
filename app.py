@@ -196,6 +196,10 @@ def save_image():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+@app.route('/ping', methods=['GET'])
+def ping():
+    return "pong", 200
+
 @app.route('/telegram_webhook', methods=['POST'])
 def telegram_webhook():
     global CAPTURE_ENABLED
